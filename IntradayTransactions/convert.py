@@ -1,4 +1,10 @@
-﻿def load_merge_data(filename): 
+﻿import os
+import fnmatch
+import re
+
+g_xlsfile = fnmatch.translate('*.xls')
+
+def load_merge_data(filename): 
     f = open(filename, 'rt') 
     lns = f.readlines() 
     f.close() 
@@ -10,7 +16,9 @@
 def load_raw_data(filename): 
     f = open(filename, 'rt') 
     lns = f.readlines() 
-    f.close(); 
+    f.close();
+    if len(lns)<5 :
+        return False
     ax = [] 
     for ln in lns[1:]: 
         (t,p,d,v,a,m)=ln.decode('gbk').split('\t') 
@@ -35,7 +43,9 @@ def stats(data):
     return (mean, variance) 
  
 def merge(raw_filename, merge_filename): 
-    rdata = load_raw_data(raw_filename) 
+    rdata = load_raw_data(raw_filename)
+    if not rdata:
+        return False
     mdata = load_merge_data(merge_filename) 
     ax = [] 
     for mrange in map(lambda x:(x,x+1), range(0,len(mdata)-1)): 
@@ -67,16 +77,71 @@ def merge(raw_filename, merge_filename):
     return ax 
  
 # 
-import os 
-import sys 
+def handle_file(xlsname):
+    (a, b) = os.path.split(xlsname)
+    b = b.split('.')[0]
+    (sym, d)=b.split('_')
+    result_am = merge(xlsname, "convert_template_am5min.txt")
+    if not result_am:
+        return False
+    result_pm = merge(xlsname, "convert_template_pm5min.txt")
+    if not result_pm:
+        return False
+    filename2 = os.path.join(a, b+'.txt')
+    f = open(filename2, 'wt')
+    for i in result_am:
+        # INSERT INTO TABLE ohlcquotation VALUES
+        #   ('sz300001','2001-01-05 09:30:00','2001-01-05 09:40:00', 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 1000, 10000 )
+        t1 = '%s %s' % (d, i[0])
+        t2 = '%s %s' % (d, i[1])
+        msg = "INSERT INTO TABLE ohlcquotation VALUES ('%s', '%s', '%s', %.2f, %.2f, %.2f, %.2f, %.2f, %g, %d, %d);\n" % \
+                                                      (sym,   t1,  t2,   i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9])
+        f.write(msg)
+    for i in result_pm:
+        # INSERT INTO TABLE ohlcquotation VALUES
+        #   ('sz300001','2001-01-05 09:30:00','2001-01-05 09:40:00', 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 1000, 10000 )
+        t1 = '%s %s' % (d, i[0])
+        t2 = '%s %s' % (d, i[1])
+        msg = "INSERT INTO TABLE ohlcquotation VALUES ('%s', '%s', '%s', %.2f, %.2f, %.2f, %.2f, %.2f, %g, %d, %d);\n" % \
+                                                      (sym,   t1,  t2,   i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9])
+        f.write(msg)
+    f.close()
+    return True
+
+def handle_symbols_folder(start_root):
+    fullroot = os.path.abspath(start_root)
+    for root, dirs, files in os.walk(start_root):
+        handled_files  = []
+        for filename in files:
+            if re.match(g_xlsfile, filename):
+                #print os.path.join(root, filename)
+                fullname = os.path.join(root, filename)
+                if not handle_file(fullname):
+                    print '[F]' + fullname
+                else:
+                    handled_files.append(os.path.abspath(fullname)+'\n')
+                    print '[T]' + fullname
+        # output merge file
+        if len(handled_files) > 0:
+            merge_filename = handled_files[0]
+            (a,b)=os.path.split(merge_filename)
+            merge_filename = os.path.join(a, 'merge.txt')
+            mergefile = open(merge_filename, 'w')
+            mergefile.writelines(handled_files)
+            mergefile.close()            
+
+#
+import sys
 if (len(sys.argv)==3): 
     result = merge(sys.argv[1], sys.argv[2]) 
     #FORMAT OUTPUT 
     for i in result: 
-        print '[%s-%s] (%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d)'%i 
-elif (len(sys.argv)==2 and sys.argv[1]=='test'): 
-    os.system('convert "convert_test_sh600219_2012-12-06.xls" "convert_template_am5min.txt"') 
+        print '[%s-%s] (%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d)'%i
+elif (len(sys.argv)==2):
+    handle_symbols_folder(sys.argv[1])
 else: 
     print 'Usage: convert <raw_data_filename> <time_template>' 
- 
- 
+
+#test
+#os.system('convert "convert_test_sh600219_2012-12-06.xls" "convert_template_am5min.txt"') 
+
