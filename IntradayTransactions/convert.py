@@ -35,6 +35,8 @@ def sum2(data, col):
     return sum 
  
 def stats(data): 
+    if (len(data)==1):
+        return (data[0],0)
     mean = sum(data) / len(data) 
     ax = 0.0 
     for value in data: 
@@ -47,23 +49,35 @@ def merge(raw_filename, merge_filename):
     if not rdata:
         return False
     mdata = load_merge_data(merge_filename) 
-    ax = [] 
+    ax = []
+    v_price_close = -1
     for mrange in map(lambda x:(x,x+1), range(0,len(mdata)-1)): 
         t1 = mdata[mrange[0]][1] 
-        t2 = mdata[mrange[1]][1] 
+        t2 = mdata[mrange[1]][1]
         subdata = filter(lambda t:t1<t[0]<=t2, rdata) 
         # Start merge 
-        # subdata: [(time, price, volumn, amount, mode),...] 
+        # subdata: [(time, price, volume, amount, mode),...] 
         slen = len(subdata) 
         if (0<slen): 
             v_price_open = subdata[0][1] 
-            v_price_close = subdata[slen-1][1] 
-        price_data = map(lambda t:t[1], subdata) 
-        v_price_min = min(price_data) 
-        v_price_max = max(price_data) 
-        (v_price_mean, v_price_var) = stats(price_data) 
-        v_volumn_sum = sum2(subdata,2) 
-        v_amount_sum = sum2(subdata,3) 
+            v_price_close = subdata[slen-1][1]
+            price_data = map(lambda t:t[1], subdata) 
+            v_price_min = min(price_data) 
+            v_price_max = max(price_data) 
+            (v_price_mean, v_price_var) = stats(price_data) 
+            v_volume_sum = sum2(subdata,2) 
+            v_amount_sum = sum2(subdata,3) 
+        elif v_price_close < 0:
+            # no close price got yet, jump to next period
+            continue
+        else:
+            # just keep the last close as the open and close of this period
+            v_price_open = v_price_close
+            v_price_min = v_price_max = v_price_mean = v_price_close
+            v_price_var = 0.0
+            v_volume_sum = 0
+            v_amount_sum = 0
+
         ax.append((mdata[mrange[0]][0], 
                    mdata[mrange[1]][0], 
                    v_price_open, 
@@ -72,8 +86,9 @@ def merge(raw_filename, merge_filename):
                    v_price_max, 
                    v_price_mean, 
                    v_price_var, 
-                   v_volumn_sum, 
+                   v_volume_sum, 
                    v_amount_sum)) 
+            
     return ax 
  
 # 
@@ -87,23 +102,27 @@ def handle_file(xlsname):
     result_pm = merge(xlsname, "convert_template_pm5min.txt")
     if not result_pm:
         return False
-    filename2 = os.path.join(a, b+'.txt')
+    filename2 = os.path.join(a, b+'.sql')
     f = open(filename2, 'wt')
     for i in result_am:
-        # INSERT INTO TABLE ohlcquotation VALUES
-        #   ('sz300001','2001-01-05 09:30:00','2001-01-05 09:40:00', 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 1000, 10000 )
+        #   (sz300001,2001-01-05 09:30:00,2001-01-05 09:40:00,30.0,30.0,30.0,30.0,30.0,30.0,1000,10000;)
         t1 = '%s %s' % (d, i[0])
         t2 = '%s %s' % (d, i[1])
-        msg = "INSERT INTO TABLE ohlcquotation VALUES ('%s', '%s', '%s', %.2f, %.2f, %.2f, %.2f, %.2f, %g, %d, %d);\n" % \
+        msg = "%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d;\n" % \
                                                       (sym,   t1,  t2,   i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9])
         f.write(msg)
+    idx_pm = 0
+    len_pm = len(result_pm)
     for i in result_pm:
-        # INSERT INTO TABLE ohlcquotation VALUES
+        # INSERT INTO ohlcquotation VALUES
         #   ('sz300001','2001-01-05 09:30:00','2001-01-05 09:40:00', 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 1000, 10000 )
         t1 = '%s %s' % (d, i[0])
         t2 = '%s %s' % (d, i[1])
-        msg = "INSERT INTO TABLE ohlcquotation VALUES ('%s', '%s', '%s', %.2f, %.2f, %.2f, %.2f, %.2f, %g, %d, %d);\n" % \
+        msg = "%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d;" % \
                                                       (sym,   t1,  t2,   i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9])
+        idx_pm = idx_pm + 1
+        if idx_pm < len_pm:
+            msg = msg + '\n'
         f.write(msg)
     f.close()
     return True
