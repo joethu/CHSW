@@ -3,6 +3,8 @@ import fnmatch
 import re
 
 g_xlsfile = fnmatch.translate('*.xls')
+g_dir1=''
+g_dir2=''
 
 def load_merge_data(filename): 
     f = open(filename, 'rt') 
@@ -98,11 +100,17 @@ def handle_file(xlsname):
     (sym, d)=b.split('_')
     result_am = merge(xlsname, "convert_template_am5min.txt")
     if not result_am:
-        return False
+        return ''
     result_pm = merge(xlsname, "convert_template_pm5min.txt")
     if not result_pm:
-        return False
+        return ''
     filename2 = os.path.join(a, b+'.sql')
+    if len(g_dir2) > 0:
+        filename2 = os.path.abspath(filename2)
+        filename2 = filename2.replace(g_dir1, g_dir2)
+        (fn2a, fn2b) = os.path.split(filename2)
+        if not os.path.exists(fn2a):
+            os.makedirs(fn2a)
     f = open(filename2, 'wt')
     for i in result_am:
         #   (sz300001,2001-01-05 09:30:00,2001-01-05 09:40:00,30.0,30.0,30.0,30.0,30.0,30.0,1000,10000;)
@@ -125,7 +133,7 @@ def handle_file(xlsname):
             msg = msg + '\n'
         f.write(msg)
     f.close()
-    return True
+    return filename2
 
 def handle_symbols_folder(start_root):
     fullroot = os.path.abspath(start_root)
@@ -135,16 +143,18 @@ def handle_symbols_folder(start_root):
             if re.match(g_xlsfile, filename):
                 #print os.path.join(root, filename)
                 fullname = os.path.join(root, filename)
-                if not handle_file(fullname):
+                fullname2 = handle_file(fullname)
+                if len(fullname2) < 1:
                     print '[F]' + fullname
                 else:
-                    handled_files.append(os.path.abspath(fullname)+'\n')
+                    handled_files.append(os.path.abspath(fullname2)+'\n')
                     print '[T]' + fullname
         # output merge file
         if len(handled_files) > 0:
             merge_filename = handled_files[0]
             (a,b)=os.path.split(merge_filename)
             merge_filename = os.path.join(a, 'merge.txt')
+            merge_filename = os.path.abspath(merge_filename)
             mergefile = open(merge_filename, 'w')
             mergefile.writelines(handled_files)
             mergefile.close()            
@@ -152,10 +162,16 @@ def handle_symbols_folder(start_root):
 #
 import sys
 if (len(sys.argv)==3): 
-    result = merge(sys.argv[1], sys.argv[2]) 
+    #result = merge(sys.argv[1], sys.argv[2]) 
     #FORMAT OUTPUT 
-    for i in result: 
-        print '[%s-%s] (%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d)'%i
+    #for i in result: 
+    #    print '[%s-%s] (%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d)'%i
+    g_dir1 = os.path.abspath(sys.argv[1])
+    g_dir2 = os.path.abspath(sys.argv[2])
+    if os.path.exists(g_dir1):
+        handle_symbols_folder(sys.argv[1])
+    g_dir1 = ''
+    g_dir2 = ''
 elif (len(sys.argv)==2):
     handle_symbols_folder(sys.argv[1])
 else: 
