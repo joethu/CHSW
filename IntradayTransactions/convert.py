@@ -5,6 +5,7 @@ import re
 g_xlsfile = fnmatch.translate('*.xls')
 g_dir1=''
 g_dir2=''
+g_lines = 0 # count how many lines written for a symbol
 
 def load_merge_data(filename): 
     f = open(filename, 'rt') 
@@ -94,71 +95,66 @@ def merge(raw_filename, merge_filename):
     return ax 
  
 # 
-def handle_file(xlsname):
+def handle_file(xlsname, outFile):
+    global g_lines
     (a, b) = os.path.split(xlsname)
     b = b.split('.')[0]
     (sym, d)=b.split('_')
     result_am = merge(xlsname, "convert_template_am5min.txt")
     if not result_am:
-        return ''
+        return False
     result_pm = merge(xlsname, "convert_template_pm5min.txt")
     if not result_pm:
-        return ''
-    filename2 = os.path.join(a, b+'.sql')
-    if len(g_dir2) > 0:
-        filename2 = os.path.abspath(filename2)
-        filename2 = filename2.replace(g_dir1, g_dir2)
-        (fn2a, fn2b) = os.path.split(filename2)
-        if not os.path.exists(fn2a):
-            os.makedirs(fn2a)
-    f = open(filename2, 'wt')
+        return False
     for i in result_am:
         #   (sz300001,2001-01-05 09:30:00,2001-01-05 09:40:00,30.0,30.0,30.0,30.0,30.0,30.0,1000,10000;)
         t1 = '%s %s' % (d, i[0])
         t2 = '%s %s' % (d, i[1])
-        msg = "%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d;\n" % \
+        if g_lines > 0:
+            outFile.write('\n')
+        msg = "%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d;" % \
                                                       (sym,   t1,  t2,   i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9])
-        f.write(msg)
-    idx_pm = 0
-    len_pm = len(result_pm)
+        outFile.write(msg)
+        g_lines = g_lines + 1   
     for i in result_pm:
         # INSERT INTO ohlcquotation VALUES
         #   ('sz300001','2001-01-05 09:30:00','2001-01-05 09:40:00', 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 1000, 10000 )
         t1 = '%s %s' % (d, i[0])
         t2 = '%s %s' % (d, i[1])
+        if g_lines > 0:
+            outFile.write('\n')
         msg = "%s,%s,%s,%.2f,%.2f,%.2f,%.2f,%.2f,%g,%d,%d;" % \
                                                       (sym,   t1,  t2,   i[2], i[3], i[4], i[5], i[6], i[7], i[8], i[9])
-        idx_pm = idx_pm + 1
-        if idx_pm < len_pm:
-            msg = msg + '\n'
-        f.write(msg)
-    f.close()
-    return filename2
-
+        outFile.write(msg)
+        g_lines = g_lines + 1
+    return True
+    
 def handle_symbols_folder(start_root):
+    global g_lines
     fullroot = os.path.abspath(start_root)
     for root, dirs, files in os.walk(start_root):
-        handled_files  = []
-        for filename in files:
-            if re.match(g_xlsfile, filename):
-                #print os.path.join(root, filename)
-                fullname = os.path.join(root, filename)
-                fullname2 = handle_file(fullname)
-                if len(fullname2) < 1:
-                    print '[F]' + fullname
-                else:
-                    handled_files.append(os.path.abspath(fullname2)+'\n')
-                    print '[T]' + fullname
-        # output merge file
-        if len(handled_files) > 0:
-            merge_filename = handled_files[0]
-            (a,b)=os.path.split(merge_filename)
-            merge_filename = os.path.join(a, 'merge.txt')
-            merge_filename = os.path.abspath(merge_filename)
-            mergefile = open(merge_filename, 'w')
-            mergefile.writelines(handled_files)
-            mergefile.close()            
-
+        #check if we are in a symbol folder
+        if len(files) > 0 and len(dirs) == 0:
+            (symPath, symbol) = os.path.split(root)
+            symFileAbsPath = os.path.join(g_dir2,symbol+'.sql')
+            (symFileDir, symFileName) = os.path.split(symFileAbsPath)
+            if not os.path.exists(symFileDir):
+               os.makedirs(symFileDir)            
+            f = open(symFileAbsPath, 'wt')
+            g_lines = 0
+            for filename in files:
+                if re.match(g_xlsfile, filename):
+                    #print os.path.join(root, filename)
+                    fullname = os.path.join(root, filename)
+                    if not handle_file(fullname,f):
+                        print '[F]' + fullname
+                    else:
+                        print '[T]' + fullname
+            f.close()
+            # post process
+            if g_lines == 0:
+                #rename file
+                os.rename(symFileAbsPath,os.path.join(symFileDir,symFileName+'ERROR'))
 #
 import sys
 if (len(sys.argv)==3): 
@@ -173,7 +169,7 @@ if (len(sys.argv)==3):
     g_dir1 = ''
     g_dir2 = ''
 elif (len(sys.argv)==2):
-    handle_symbols_folder(sys.argv[1])
+    handle_symbols_folder(sys.argv[1],'.')
 else: 
     print 'Usage: convert <raw_data_filename> <time_template>' 
 
