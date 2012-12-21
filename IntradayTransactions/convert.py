@@ -24,7 +24,7 @@ def load_raw_data(filename):
         return False
     ax = [] 
     for ln in lns[1:]: 
-        (t,p,d,v,a,m)=ln.decode('gbk').split('\t') 
+        (t,p,d,v,a,m)=ln.decode('gbk').split('\t') # we may need to check the column length, e.g. the lastline in sz000002_2011-01-12.xls
         if m.startswith(u'买') : m=1 
         elif m.startswith(u'卖') : m=-1 
         elif m.startswith(u'中') : m=0 

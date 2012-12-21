@@ -20,7 +20,7 @@ if (len(sys.argv)==4):
             if os.path.exists(dataFileAbsPath):
                 dataFileAbsPath = dataFileAbsPath.replace('\\','\\\\')
                 print(dataFileAbsPath)
-                file_meregedSQL.write('load data infile \'' + dataFileAbsPath + '\' into table ohlcquotation columns terminated by \',\' LINES terminated by \';\'\n')
+                file_meregedSQL.write('load data local infile \'' + dataFileAbsPath + '\' into table ohlcquotation columns terminated by \',\' LINES terminated by \';\';\n')
         file_meregedSQL.close()
 else: 
     print 'Usage: loadSymbols <symbolsToLoad_File> <Data Sql_Dir> <OutputSQL_File>' 
