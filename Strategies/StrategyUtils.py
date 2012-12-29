@@ -25,10 +25,7 @@ def readStrategySettings(strategy,paramList):
 class TradeMeta:
     POS_LONG = 'L'
     POS_SHORT = 'S'
-    POS_NONE = 'N'
-    SIDE_BUY = 'B'
-    SIDE_SELL = 'S'
-    SIDE_NONE = 'N'
+    POS_CLOSE = 'C'
 
 class TimePriceInfo:
     def __init__(self,_timeStamp,_price):
@@ -56,16 +53,16 @@ class PositionInfo:
         file.close()
 
 class TradeSignal:
-    def __init__(self,_timeStamp,_side,_intensity):
+    def __init__(self,_timeStamp,_type,_intensity):
         self.timeStamp = _timeStamp
-        self.side = _side
-        self.intensity = _intensity # (0,1]
+        self.type = _type           # TradeMeta.POS_*
+        self.intensity = _intensity # (0,1], indicate the confidence, to be used later
 
     @staticmethod
     def printTradeSignalSequence(_tradeSignals,_fileName):
         file = open(_fileName,'wb')
         for item in _tradeSignals:
-            file.write(str(item.timeStamp) + '\t' + item.side + '\t' + str(item.intensity) + '\n')
+            file.write(str(item.timeStamp) + '\t' + item.type + '\t' + str(item.intensity) + '\n')
         file.close()
 
     @staticmethod
@@ -82,22 +79,7 @@ class TradeSignal:
                 capital = _lastCapital * (_signal.intensity * _lastPrice / price + (1 - _signal.intensity))
             _positionList.append(PositionInfo(timePriceItem.timeStamp,capital,_lastPos))
         #trade on this signal
-        pos = _lastPos
-        if _signal.side==TradeMeta.SIDE_BUY:
-            if _lastPos==TradeMeta.POS_SHORT:
-                pos = TradeMeta.POS_NONE
-            elif _lastPos==TradeMeta.POS_NONE:
-                pos = TradeMeta.POS_LONG
-            else:
-                print ("Error - incorrect signal: continuous buying?")
-        else:
-            if _lastPos==TradeMeta.POS_LONG:
-                pos = TradeMeta.POS_NONE
-            elif _lastPos==TradeMeta.POS_NONE:
-                pos = TradeMeta.POS_SHORT
-            else:
-                print ("Error - incorrect signal: continuous selling?")
-        return (_indexOfSignal,pos,capital,price)
+        return (_indexOfSignal,_signal.type,capital,price)
         
         
         
@@ -111,7 +93,7 @@ class TradeSignal:
         length = len(timeStamps)
         if length > 0:
             lastCapital = 1
-            lastPos = TradeMeta.POS_NONE
+            lastPos = TradeMeta.POS_CLOSE
             lastIndexOfSignal = 0
             lastPrice = _timePriceList[0].price
             positionList.append(PositionInfo(timeStamps[0],lastCapital,lastPos))
@@ -126,7 +108,7 @@ class TradeSignal:
             if lastIndexOfSignal < length - 1:
                 #fake a last signal
                 indexOfSignal = length - 1
-                fakeSignal = TradeSignal(timeStamps[indexOfSignal],TradeMeta.SIDE_NONE,1)
+                fakeSignal = TradeSignal(timeStamps[indexOfSignal],TradeMeta.POS_CLOSE,1)
                 TradeSignal.computePositionsWithSignalsHelper(_timePriceList,fakeSignal,indexOfSignal,lastIndexOfSignal,lastPos,lastCapital,lastPrice,positionList)
         return positionList
         

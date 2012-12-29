@@ -40,7 +40,8 @@ def FSMA(data_in, params):
         StrategyUtils.TimePriceInfo.printTimePriceSequence(fast_ma_list,symbol + '.avg' + str(fast_ma) + '.txt')
 
     tradeSignals = []
-    position = StrategyUtils.TradeMeta.POS_NONE
+    position = StrategyUtils.TradeMeta.POS_CLOSE
+    intensity = 1
     lastDiff = 0 #slow - fast
     lastSlow = lastFast = -1 #calc moving direction
     dirSlow = dirFast = 0    #moving direction: +1, 0, -1
@@ -54,28 +55,52 @@ def FSMA(data_in, params):
                 # update moving direction
                 dirSlow = FSMA_CalcDirection(lastSlow,slow_avg,dirSlow)
                 dirFast = FSMA_CalcDirection(lastFast,fast_avg,dirFast)
+                addSignal = False
                 if currDiff > 0:
-                    if lastDiff < 0:
-                        if (not position==StrategyUtils.TradeMeta.POS_LONG) and \
-                           ((not check_direction) or (dirSlow > 0) or (position==StrategyUtils.TradeMeta.POS_SHORT)):
-                            tradeSignals.append(StrategyUtils.TradeSignal(timePriceList[i].timeStamp,StrategyUtils.TradeMeta.SIDE_BUY,1))
-                            if position==StrategyUtils.TradeMeta.POS_SHORT:
-                                position = StrategyUtils.TradeMeta.POS_NONE
-                            else:
+                    if lastDiff < 0 and (not position == StrategyUtils.TradeMeta.POS_LONG):
+                        addSignal = True
+                        if not check_direction:
+                            if position == StrategyUtils.TradeMeta.POS_SHORT:
+                                position = StrategyUtils.TradeMeta.POS_CLOSE
+                            elif position == StrategyUtils.TradeMeta.POS_CLOSE:
                                 position = StrategyUtils.TradeMeta.POS_LONG
+                            else:
+                                addSignal = False
+                        else:
+                            if dirSlow > 0:
+                                position = StrategyUtils.TradeMeta.POS_LONG
+                            elif position == StrategyUtils.TradeMeta.POS_SHORT:
+                                position = StrategyUtils.TradeMeta.POS_CLOSE
+                            else:
+                                addSignal = False
                     lastDiff = currDiff
                 elif currDiff < 0:
-                    if lastDiff > 0:
-                        if ((ALLOW_SHORT and not position==StrategyUtils.TradeMeta.POS_SHORT) or ((not ALLOW_SHORT) and position==StrategyUtils.TradeMeta.POS_LONG)) and \
-                           ((not check_direction) or (dirSlow < 0) or (position==StrategyUtils.TradeMeta.POS_LONG)):
-                            tradeSignals.append(StrategyUtils.TradeSignal(timePriceList[i].timeStamp,StrategyUtils.TradeMeta.SIDE_SELL,1))
-                            if position==StrategyUtils.TradeMeta.POS_LONG:
-                                position = StrategyUtils.TradeMeta.POS_NONE
-                            else:
+                    if lastDiff > 0 and (not position==StrategyUtils.TradeMeta.POS_SHORT):
+                        addSignal = True
+                        if not check_direction:
+                            if position == StrategyUtils.TradeMeta.POS_LONG:
+                                position = StrategyUtils.TradeMeta.POS_CLOSE
+                            elif position == StrategyUtils.TradeMeta.POS_CLOSE and ALLOW_SHORT:
                                 position = StrategyUtils.TradeMeta.POS_SHORT
-
+                            else:
+                                addSignal = False
+                        else:
+                            if dirSlow < 0:
+                                if ALLOW_SHORT:
+                                    position = StrategyUtils.TradeMeta.POS_SHORT
+                                elif position == StrategyUtils.TradeMeta.POS_LONG:
+                                    position = StrategyUtils.TradeMeta.POS_CLOSE
+                                else:
+                                    addSignal = False
+                            elif position == StrategyUtils.TradeMeta.POS_LONG:
+                                position = StrategyUtils.TradeMeta.POS_CLOSE
+                            else:
+                                addSignal = False
                     lastDiff = currDiff
                 # don't update lastDiff if currDiff = 0
+                if addSignal:
+                    tradeSignals.append(StrategyUtils.TradeSignal(timePriceList[i].timeStamp,position,intensity))
+
             lastSlow = slow_avg
             lastFast = fast_avg
     return tradeSignals
