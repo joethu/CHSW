@@ -39,6 +39,12 @@ class TimePriceInfo:
             file.write(str(item.timeStamp) + '\t' + str(item.price) + '\n')
         file.close()
 
+class Evaluation:
+    def __init__(self,_symbol,_ulPxChange,_yieldRate):
+        self.symbol = _symbol
+        self.ulPxChange = _ulPxChange
+        self.yieldRate = _yieldRate
+
 class PositionInfo:
     def __init__(self,_timeStamp,_capital,_posType):
         self.timeStamp = _timeStamp

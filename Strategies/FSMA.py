@@ -1,11 +1,15 @@
 ﻿import StrategyUtils
+import os
 
 g_FSMAConfigFastMA = 'fast_ma'
 g_FSMAConfigSlowMA = 'slow_ma'
 g_FSMAConfigCSMD = 'check_slowma_direction'
+g_database = 'chswdata'
+g_table = 'ohlcquotation'
+g_debug_folder = 'debug'
 
 DEBUG = True
-ALLOW_SHORT = True
+ALLOW_SHORT = False
 
 def FSMA_Init():
     paramList = [g_FSMAConfigFastMA,g_FSMAConfigSlowMA,g_FSMAConfigCSMD]
@@ -35,9 +39,9 @@ def FSMA(data_in, params):
     slow_ma_list = StrategyUtils.PriceProcess.calcMovingAvg(timePriceList,slow_ma)
     fast_ma_list = StrategyUtils.PriceProcess.calcMovingAvg(timePriceList,fast_ma)
     if DEBUG:
-        StrategyUtils.TimePriceInfo.printTimePriceSequence(timePriceList,symbol + '.orig.txt')
-        StrategyUtils.TimePriceInfo.printTimePriceSequence(slow_ma_list,symbol + '.avg' + str(slow_ma) + '.txt')
-        StrategyUtils.TimePriceInfo.printTimePriceSequence(fast_ma_list,symbol + '.avg' + str(fast_ma) + '.txt')
+        StrategyUtils.TimePriceInfo.printTimePriceSequence(timePriceList,os.path.join(g_debug_folder,symbol + '.orig.txt'))
+        StrategyUtils.TimePriceInfo.printTimePriceSequence(slow_ma_list,os.path.join(g_debug_folder,symbol + '.avg' + str(slow_ma) + '.txt'))
+        StrategyUtils.TimePriceInfo.printTimePriceSequence(fast_ma_list,os.path.join(g_debug_folder,symbol + '.avg' + str(fast_ma) + '.txt'))
 
     tradeSignals = []
     position = StrategyUtils.TradeMeta.POS_CLOSE
@@ -105,15 +109,9 @@ def FSMA(data_in, params):
             lastFast = fast_avg
     return tradeSignals
 
-def FSMA_run():
-    # read strategy config
-    strategy_params = FSMA_Init()
+def FSMA_symbol(symbol,pxType,start,end,params):
     # fetch data from db
-    symbol = 'sz000001'
-    pxType = 'ClosePx'
-    start = '2011-01-01'
-    end = '2012-01-01'
-    timePriceList = StrategyUtils.queryPriceFromDB('chswdata','ohlcquotation',symbol,pxType,start,end)
+    timePriceList = StrategyUtils.queryPriceFromDB(g_database,g_table,symbol,pxType,start,end)
     print (str(len(timePriceList)) + ' rows retrieved.')
     # go
     data_in_dict = dict()
@@ -122,13 +120,43 @@ def FSMA_run():
     data_in_dict['data'] = timePriceList
     data_in_dict['start'] = start
     data_in_dict['end'] = end
-    tradeSignals = FSMA(data_in_dict,strategy_params)
+    tradeSignals = FSMA(data_in_dict,params)
     if DEBUG:
-        StrategyUtils.TradeSignal.printTradeSignalSequence(tradeSignals,symbol + '.signal.txt')
+        StrategyUtils.TradeSignal.printTradeSignalSequence(tradeSignals,os.path.join(g_debug_folder,symbol + '.signal.txt'))
     #evaluate
     positionLists = StrategyUtils.TradeSignal.computePositionsWithSignals(timePriceList,tradeSignals)
     if DEBUG:
-        StrategyUtils.PositionInfo.printPositionSequence(positionLists,symbol + '.position.txt')
+        StrategyUtils.PositionInfo.printPositionSequence(positionLists,os.path.join(g_debug_folder,symbol + '.position.txt'))
+    return (timePriceList,positionLists)
 
+# read strategy config
+#strategy_params = FSMA_Init()
+#FSMA_symbol('sz000001','ClosePx','2011-01-01','2012-01-01',strategy_params)
 
-FSMA_run()
+def FSMA_symbols(symbols,pxType,start,end,params):
+    evaluations = []
+    for sym in symbols:
+        (timePriceList,positionLists) = FSMA_symbol(sym,pxType,start,end,params)
+        ulPxChange = 0
+        yieldRate = 0
+        length = len(timePriceList)
+        if timePriceList[0].price > 0:
+            ulPxChange = timePriceList[length-1].price / timePriceList[0].price - 1
+        if positionLists[0].capital > 0:
+            yieldRate = positionLists[length-1].capital / positionLists[0].capital - 1
+        evaluations.append(StrategyUtils.Evaluation(sym,ulPxChange,yieldRate))
+    return evaluations
+
+def FSMA_HS300():
+    strategy_params = FSMA_Init()
+    file = open('HS300_Sina.txt')
+    syms = StrategyUtils.stripNewLine(file.readlines())
+    file.close()
+    evaluations = FSMA_symbols(syms,'ClosePx','2011-01-01','2012-01-01',strategy_params)
+    file = open('HS300_FSMA.txt','wb')
+    file.write('Symbol\tUlPxChange\tYieldRate')
+    for eval in evaluations:
+        file.write('\n' + eval.symbol + '\t' + str(eval.ulPxChange) + '\t' + str(eval.yieldRate))
+    file.close()
+
+FSMA_HS300()
