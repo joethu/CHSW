@@ -6,14 +6,24 @@ g_FSMAConfigSlowMA = 'slow_ma'
 g_FSMAConfigCSMD = 'check_slowma_direction'
 g_database = 'chswdata'
 g_table = 'ohlcquotation'
-g_debug_folder = 'debug'
+g_debug_folder = 'debug_restore'
 
 DEBUG = True
+CLEAN_OUTPUT = True
 ALLOW_SHORT = False
 
 def FSMA_Init():
     paramList = [g_FSMAConfigFastMA,g_FSMAConfigSlowMA,g_FSMAConfigCSMD]
     return StrategyUtils.readStrategySettings('FSMA',paramList)
+
+def FSMA_Validate(params):
+    validated = True
+    slow_ma = int(params[g_FSMAConfigSlowMA])
+    fast_ma = int(params[g_FSMAConfigFastMA])
+    if slow_ma <= fast_ma:
+        print ('ERROR Setting: Slow avg range must be larger than Fast!')
+        validated = False
+    return validated
 
 def FSMA_CalcDirection(lastPx,currPx,lastDirection):
     diff = currPx - lastPx
@@ -30,11 +40,11 @@ def FSMA(data_in, params):
     fast_ma = int(params[g_FSMAConfigFastMA])
     check_direction = bool(int(params[g_FSMAConfigCSMD]))
     if slow_ma <= fast_ma:
-        print ('ERROR Setting: Slow avg range must be larger than Fast!')
         return []
     timePriceList = data_in['data']
     symbol = data_in['symbol']
-    print("Running FastSlowMovingAverageLineStrategy on symbol " + symbol)
+    if not CLEAN_OUTPUT:
+        print("Running FastSlowMovingAverageLineStrategy on symbol " + symbol)
 
     slow_ma_list = StrategyUtils.PriceProcess.calcMovingAvg(timePriceList,slow_ma)
     fast_ma_list = StrategyUtils.PriceProcess.calcMovingAvg(timePriceList,fast_ma)
@@ -112,7 +122,10 @@ def FSMA(data_in, params):
 def FSMA_symbol(symbol,pxType,start,end,params):
     # fetch data from db
     timePriceList = StrategyUtils.queryPriceFromDB(g_database,g_table,symbol,pxType,start,end)
-    print (str(len(timePriceList)) + ' rows retrieved.')
+    if not CLEAN_OUTPUT:
+        print (str(len(timePriceList)) + ' rows retrieved.')
+    # restore Rights
+    StrategyUtils.ExRightsData.restoreRights(symbol,timePriceList)
     # go
     data_in_dict = dict()
     data_in_dict['symbol'] = symbol
@@ -127,11 +140,8 @@ def FSMA_symbol(symbol,pxType,start,end,params):
     positionLists = StrategyUtils.TradeSignal.computePositionsWithSignals(timePriceList,tradeSignals)
     if DEBUG:
         StrategyUtils.PositionInfo.printPositionSequence(positionLists,os.path.join(g_debug_folder,symbol + '.position.txt'))
+    print ('[S]FSMA on ' + symbol)
     return (timePriceList,positionLists)
-
-# read strategy config
-#strategy_params = FSMA_Init()
-#FSMA_symbol('sz000001','ClosePx','2011-01-01','2012-01-01',strategy_params)
 
 def FSMA_symbols(symbols,pxType,start,end,params):
     evaluations = []
@@ -148,7 +158,13 @@ def FSMA_symbols(symbols,pxType,start,end,params):
     return evaluations
 
 def FSMA_HS300():
+    if DEBUG:
+        debug_folder_abs = os.path.abspath(g_debug_folder)
+        if not os.path.exists(debug_folder_abs):
+            os.makedirs(debug_folder_abs)
     strategy_params = FSMA_Init()
+    if not FSMA_Validate(strategy_params):
+        return
     file = open('HS300_Sina.txt')
     syms = StrategyUtils.stripNewLine(file.readlines())
     file.close()
@@ -159,4 +175,16 @@ def FSMA_HS300():
         file.write('\n' + eval.symbol + '\t' + str(eval.ulPxChange) + '\t' + str(eval.yieldRate))
     file.close()
 
+def FSMA_Test(symbol):    
+    if DEBUG:
+        debug_folder_abs = os.path.abspath(g_debug_folder)
+        if not os.path.exists(debug_folder_abs):
+            os.makedirs(debug_folder_abs)
+    # read strategy config
+    strategy_params = FSMA_Init()
+    if FSMA_Validate(strategy_params):
+        FSMA_symbol(symbol,'ClosePx','2011-01-01','2012-01-01',strategy_params)
+
+#FSMA_Test('sh600642')
 FSMA_HS300()
+#StrategyUtils.ExRightsData.printExRights(StrategyUtils.ExRightsData.getExRightsDataInSpan('sh600636','',''))

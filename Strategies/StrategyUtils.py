@@ -1,5 +1,6 @@
 ﻿import ConfigParser
 import MySQLdb
+from datetime import datetime,timedelta
 
 CONFIG_FILE = 'Strategy.ini'
 DB_SERVER = 'chsw1982.oicp.net'
@@ -12,6 +13,22 @@ def stripNewLine(linesFromFile):
     for line in linesFromFile:
         newLines.append(line.rstrip("\n"))
     return newLines
+
+#search the first element which is larger than or equal to _valToFind
+#assumming _sortedList is in ascending order
+def biSearch_firstLargerOrEqual(_sortedList,_valToFind,low=0,high=-1):
+    res = -1
+    if high == -1:
+        high = len(_sortedList) - 1
+    while low <= high:
+        mid = (low + high) / 2
+        val = _sortedList[mid]
+        if val < _valToFind:
+            low = mid + 1
+        else:
+            res = mid
+            high = mid - 1
+    return res
 
 def readStrategySettings(strategy,paramList):
     config = ConfigParser.RawConfigParser(allow_no_value=True)
@@ -26,6 +43,8 @@ class TradeMeta:
     POS_LONG = 'L'
     POS_SHORT = 'S'
     POS_CLOSE = 'C'
+    RESTORE_RIGHTS_FORWARD = 'FORWARD'
+    RESTORE_RIGHTS_BACKWARD = 'BACKWARD'
 
 class TimePriceInfo:
     def __init__(self,_timeStamp,_price):
@@ -153,7 +172,7 @@ def queryPriceFromDB(database,table,symbol,priceType,start,end):
         conn = MySQLdb.connect(host=DB_SERVER,user=DB_USER,passwd=DB_PASSWD,port=DB_PORT)
         conn.select_db(database)
         sql = 'select EndTime, ' + priceType + ' from ' + table + ' where symbol = \'' + symbol + '\' and StartTime > \'' + start + '\' and StartTime < \'' + end + '\' limit ' + str(DB_MAX_ROWS)
-        print(sql + ' ...')
+#        print(sql + ' ...')
         conn.query(sql)
         res = conn.store_result()
         records = res.fetch_row(maxrows=0)
@@ -166,3 +185,88 @@ def queryPriceFromDB(database,table,symbol,priceType,start,end):
         print ("MySQL Error %d: %s" % (e.args[0], e.args[1]))
     return []
 
+class ExRightsData:
+    s_allExRights = dict() # symobl -> (date -> ExRightsData instance)
+    def __init__(self,_divStock,_divCash,_allotShr,_allotPx):
+        self.divStock = _divStock
+        self.divCash = _divCash
+        self.allotShr = _allotShr
+        self.allotPx = _allotPx
+
+    def restoreRatio(self,_closePx):
+        ratio = 1.0
+        if _closePx > 0:
+            exRightsPx = (_closePx - self.divCash/10.0 + self.allotPx*self.allotShr/10.0) / (1 + self.divStock/10.0 + self.allotShr/10.0)
+            if exRightsPx > 0:
+                ratio = _closePx / exRightsPx
+        return ratio
+
+    @staticmethod
+    def getExRightsDataInSpan(_symbol,_start,_end):
+        if len(ExRightsData.s_allExRights) == 0:
+            #read ExRightsData from file
+            file = open('ExRightsData.txt')
+            exRightsItems = stripNewLine(file.readlines())
+            for item in exRightsItems:
+                (sym,date,divStock,allotShr,allotPx,divCash) = item.split('\t')
+                #convert date format from 'yyyymmdd' to 'yyyy-mm-dd'
+                date = datetime.strptime(date,'%Y%m%d').strftime('%Y-%m-%d')
+                exRightsObj = ExRightsData(float(divStock),float(divCash),float(allotShr),float(allotPx))
+                if sym in ExRightsData.s_allExRights:
+                    ExRightsData.s_allExRights[sym][date] = exRightsObj
+                else:
+                    exRightsSym = dict()
+                    exRightsSym[date] = exRightsObj
+                    ExRightsData.s_allExRights[sym] = exRightsSym
+        # return the ExRights dictionary for this symbol in the span
+        exRigtsDict = dict()
+        checkStart = len(_start)>0
+        checkEnd = len(_end)>0
+        if _symbol in ExRightsData.s_allExRights:
+            for (date,exRights) in ExRightsData.s_allExRights[_symbol].items():
+                if (checkStart and date < _start) or (checkEnd and date >=_end):
+                    continue
+                exRigtsDict[date] = exRights
+        return exRigtsDict
+
+    @staticmethod
+    def printExRights(_exRightsDict):
+        print("Date\t\tDivStock\tDivCash\tallotShares\tallotPx")
+        datesExRights = list(_exRightsDict.keys())
+        datesExRights.sort()
+        for date in datesExRights:
+            exRights = _exRightsDict[date]
+            print (date + '\t' + str(exRights.divStock) + '\t' + str(exRights.divCash) + '\t' + str(exRights.allotShr) + '\t' + str(exRights.allotPx))
+
+    @staticmethod
+    def restoreRights(_symbol,_timePriceList,_orientation=TradeMeta.RESTORE_RIGHTS_FORWARD):
+        #suppose timestamps in the input list in sorted ascendingly
+        length = len(_timePriceList)
+        if length > 1:
+            dateList = []
+            for item in _timePriceList:
+                dateList.append(datetime.strptime(item.timeStamp,'%Y-%m-%d %H:%M:%S').date().isoformat())
+            startDate = dateList[0]
+            endDate = (datetime.strptime(dateList[length - 1],'%Y-%m-%d') + timedelta(days=1)).date().isoformat()
+            exRightsDict = ExRightsData.getExRightsDataInSpan(_symbol,startDate,endDate)
+            datesExRights = list(exRightsDict.keys())
+            datesExRights.sort()
+            #restore rights one by one in the normal time sequence
+            startIndex = 0
+            for exDate in datesExRights:
+                #calculate restoreRatio:
+                indexOfExDate = biSearch_firstLargerOrEqual(dateList,exDate,startIndex)
+                if indexOfExDate < 0:
+                    print('ERROR: EXRight date not in range: ' + exDate)
+                    return
+                startIndex = indexOfExDate + 1
+                exRights = exRightsDict[exDate]
+                if indexOfExDate > 0:
+                    ratio = exRights.restoreRatio(_timePriceList[indexOfExDate-1].price)
+                    #restore rights before this exRightsDate
+                    if _orientation==TradeMeta.RESTORE_RIGHTS_FORWARD:
+                        for i in range(0,indexOfExDate):
+                            _timePriceList[i].price = _timePriceList[i].price / ratio
+                    elif _orientation==TradeMeta.RESTORE_RIGHTS_BACKWARD:
+                        for i in range(indexOfExDate,length):
+                            _timePriceList[i].price = _timePriceList[i].price * ratio
